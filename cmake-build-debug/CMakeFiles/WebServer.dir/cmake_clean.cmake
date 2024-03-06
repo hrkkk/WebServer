@@ -5,6 +5,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/WebServer.dir/RequestProcessing.cpp.o.d"
   "CMakeFiles/WebServer.dir/TcpServer.cpp.o"
   "CMakeFiles/WebServer.dir/TcpServer.cpp.o.d"
+  "CMakeFiles/WebServer.dir/ThreadPool.cpp.o"
+  "CMakeFiles/WebServer.dir/ThreadPool.cpp.o.d"
   "CMakeFiles/WebServer.dir/Utils.cpp.o"
   "CMakeFiles/WebServer.dir/Utils.cpp.o.d"
   "CMakeFiles/WebServer.dir/main.cpp.o"

@@ -108,6 +108,12 @@
 		<Unit filename="/tmp/tmp.PH8fvCBLn8/TcpServer.h">
 			<Option target="WebServer"/>
 		</Unit>
+		<Unit filename="/tmp/tmp.PH8fvCBLn8/ThreadPool.cpp">
+			<Option target="WebServer"/>
+		</Unit>
+		<Unit filename="/tmp/tmp.PH8fvCBLn8/ThreadPool.h">
+			<Option target="WebServer"/>
+		</Unit>
 		<Unit filename="/tmp/tmp.PH8fvCBLn8/Utils.cpp">
 			<Option target="WebServer"/>
 		</Unit>
