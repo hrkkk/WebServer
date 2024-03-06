@@ -18,10 +18,12 @@ ThreadPool::ThreadPool(int min, int max)
     m_liveNum = min;
     m_exitNum = 0;
     m_shutdown = false;
+    // 创建管理者线程
     m_managerID = thread(manager, this);
-    m_threadIDs.resize(max);
+    // 创建工作线程
+    m_workThreads.resize(max);
     for (int i = 0; i < min; ++i) {
-        m_threadIDs[i] = thread(worker, this);
+        m_workThreads[i] = thread(worker, this);
     }
 }
 
@@ -33,10 +35,10 @@ ThreadPool::~ThreadPool()
         m_managerID.join();
     }
     // 唤醒阻塞的消费者线程
-    m_cond.notify_all();
+    m_condition.notify_all();
     for (int i = 0; i < m_maxNum; ++i) {
-        if (m_threadIDs[i].joinable()) {
-            m_threadIDs[i].join();
+        if (m_workThreads[i].joinable()) {
+            m_workThreads[i].join();
         }
     }
 }
@@ -49,7 +51,7 @@ void ThreadPool::addTask(Task task)
     }
     // 添加任务
     m_taskQueue.push(task);
-    m_cond.notify_all();
+    m_condition.notify_all();
 }
 
 void ThreadPool::addTask(callback func, void *arg)
@@ -82,8 +84,8 @@ void ThreadPool::worker(void *arg)
         unique_lock<mutex> lk(pool->m_mutexPool);
         // 当前任务队列是否为空
         while (pool->m_taskQueue.empty() && !pool->m_shutdown) {
-            // 如果任务队列中任务为0，并且线程池没有被关闭，则阻塞当前工作线程
-            pool->m_cond.wait(lk);
+            // 如果任务队列为空，并且线程池没有被关闭，则阻塞当前工作线程，等待其他线程通知或有任务加入
+            pool->m_condition.wait(lk);
 
             // 判断是否要销毁线程，管理者让该工作者线程自杀
             if (pool->m_exitNum > 0) {
@@ -102,18 +104,22 @@ void ThreadPool::worker(void *arg)
             cout << "Thread: " << this_thread::get_id() << " exit..." << endl;
             return;
         }
-        // 从任务队列中去除一个任务
+
+        // 以下是工作流程：
+        // 从任务队列中取出一个任务
         Task task = pool->m_taskQueue.front();
         pool->m_taskQueue.pop();
         pool->m_busyNum++;
         // 当访问完线程池队列时，线程池解锁
         lk.unlock();
+
         // 取出Task任务后，就可以在当前线程中执行该任务了
         cout << "Thread: " << this_thread::get_id() << " start work..." << endl;
         task.m_function(task.m_arg);
         free(task.m_arg);
         task.m_arg = nullptr;
-        // 任务执行完毕，忙线程解锁
+
+        // 任务执行完毕，忙线程解锁，线程回到空闲状态
         cout << "Thread: " << this_thread::get_id() << " end work..." << endl;
         lk.lock();
         pool->m_busyNum--;
@@ -137,7 +143,7 @@ void ThreadPool::manager(void *arg)
         int busyNum = pool->m_busyNum;
         lk.unlock();
 
-        // 添加线程
+        // 添加线程 —— 代表当前工作线程不够，且未达到最大线程数
         // 任务的个数 > 存活的线程个数 && 存活的线程数 < 最大线程数
         if (queueSize > liveNum && liveNum < pool->m_maxNum) {
             // 因为在for循环中操作了线程池变量，所以需要加锁
@@ -147,9 +153,9 @@ void ThreadPool::manager(void *arg)
             // 添加线程
             for (int i = 0; i < pool->m_maxNum && count < NUMBER && pool->m_liveNum < pool->m_maxNum; ++i) {
                 // 判断当前线程ID，用来存储创建的线程ID
-                if (pool->m_threadIDs[i].get_id() == thread::id()) {
+                if (pool->m_workThreads[i].get_id() == thread::id()) {
                     cout << "Create a new thread..." << endl;
-                    pool->m_threadIDs[i] = thread(worker, pool);
+                    pool->m_workThreads[i] = thread(worker, pool);
                     // 线程创建完毕
                     count++;
                     pool->m_liveNum++;
@@ -157,7 +163,8 @@ void ThreadPool::manager(void *arg)
             }
             lk.unlock();
         }
-        // 销毁线程：当前存活的线程太多了，工作的线程太少了
+
+        // 销毁线程 —— 当前存活的线程太多了，工作的线程太少了
         // 忙的线程*2 < 存活的线程数 && 存活的线程数 > 最小的线程数
         if (busyNum * 2 < liveNum && liveNum > pool->m_minNum) {
             // 访问了线程池，需要加锁
@@ -165,9 +172,9 @@ void ThreadPool::manager(void *arg)
             // 一次性销毁两个
             pool->m_exitNum = NUMBER;
             lk.unlock();
-            // 让工作的线程自杀，无法做到直接杀死空闲线程，只能通知空闲线程让它自杀
+            // 让工作线程自杀，无法做到直接杀死空闲线程，只能通知空闲线程让它自杀
             for (int i = 0; i < NUMBER; ++i) {
-                pool->m_cond.notify_all();
+                pool->m_condition.notify_all();
             }
         }
     }
