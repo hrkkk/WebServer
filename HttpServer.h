@@ -2,8 +2,9 @@
 #define HTTP_SERVER_H
 
 #include "TcpServer.h"
+#include "sys/epoll.h"
 
-const int MAX_EVENT_NUMBER = 10000;     // 最大事件数
+constexpr int MAX_EVENT_NUMBER = 10000;     // 最大事件数
 
 class HttpServer {
 public:

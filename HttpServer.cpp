@@ -9,6 +9,7 @@
 #include "HttpServer.h"
 #include "Utils.h"
 #include "RequestProcessing.h"
+#include "ThreadPool.h"
 
 HttpServer::HttpServer(int port) : m_port(port) {}
 
@@ -19,8 +20,6 @@ void HttpServer::loop()
     TcpServer* tcpServer = TcpServer::getInstance(m_port);
     int listenSocket = tcpServer->getSocket();
 
-    LOG(INFO, "Loop begin\r\n");
-
     // 创建epoll实例
     m_epollFd = epoll_create(256);
     if (m_epollFd == -1) {
@@ -28,12 +27,18 @@ void HttpServer::loop()
         return;
     }
 
+    // 将服务器socket添加到epoll监听中
     epoll_event ev;
     ev.data.fd = listenSocket;
     ev.events = EPOLLIN | EPOLLET;
-
     epoll_ctl(m_epollFd, EPOLL_CTL_ADD, listenSocket, &ev);
 
+    // 创建线程池
+    ThreadPool threadPool(4);
+
+    LOG(INFO, "Loop begin\r\n");
+
+    // epoll事件循环
     while (true) {
         // 等待epoll事件发生
         int number = epoll_wait(m_epollFd, m_events, MAX_EVENT_NUMBER, -1);
@@ -44,8 +49,8 @@ void HttpServer::loop()
                 sockaddr_in peer;
                 memset(&peer, 0, sizeof(peer));
                 socklen_t len = sizeof(peer);
-                int peerSocket = accept(listenSocket, (sockaddr*)&peer, &len);
-                if (peerSocket < 0) {
+                int clientSocket = accept(listenSocket, (sockaddr*)&peer, &len);
+                if (clientSocket < 0) {
                     continue;
                 }
 
@@ -53,39 +58,25 @@ void HttpServer::loop()
                 int clientPort = ntohs(peer.sin_port);
                 LOG(INFO, "Get a new link:[" + clientIP + ":" + std::to_string(clientPort) + "]");
 
-                // 将该socket添加到epoll中
-                ev.data.fd = peerSocket;
+                // 将该客户端socket添加到epoll监听中
+                ev.data.fd = clientSocket;
                 ev.events = EPOLLIN | EPOLLET;
                 // 注册event
-                epoll_ctl(m_epollFd, EPOLL_CTL_ADD, peerSocket, &ev);
+                epoll_ctl(m_epollFd, EPOLL_CTL_ADD, clientSocket, &ev);
             } else if (m_events[i].events & EPOLLIN) {   // 如果是已连接的用户，并且收到数据，则进行读取
-                int socket = m_events[i].data.fd;
+                int clientSocket = m_events[i].data.fd;
                 // 读取数据
-
-                // 读完数据
-                ev.data.fd = socket;
-                ev.events = EPOLLOUT | EPOLLET;
-
-                epoll_ctl(m_epollFd, EPOLL_CTL_MOD, socket, &ev);
+                // 将读写任务添加到任务队列中
+                threadPool.addTask([clientSocket]() {
+                    RequestProcessing requestProcessing(clientSocket);
+                    requestProcessing.processRequest();
+                    close(clientSocket);
+                    LOG(INFO, "Link has disconnected\r\n");
+                });
             } else if (m_events[i].events & EPOLLOUT) {      // 如果有数据要发送
-                int socket = m_events[i].data.fd;
-                // 写入数据
-
-                // 写完数据
-                ev.data.fd = socket;
-                ev.events = EPOLLIN | EPOLLET;
-
-                epoll_ctl(m_epollFd, EPOLL_CTL_MOD, socket, &ev);
+                // 数据发送操作封装在任务中，不使用EPOLLOUT事件来触发
             }
         }
-//        // 开启子线程，处理任务
-//        RequestProcessing requestProcessing(sock);
-//        if (requestProcessing.processRequest()) {
-//            LOG(WARNING, "Request process failed");
-//        }
-//
-//        close(sock);
-//        LOG(INFO, "Link closed:[" + clientIP + ":" + std::to_string(clientPort) + "]\n");
     }
 
     close(listenSocket);

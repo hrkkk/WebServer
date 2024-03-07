@@ -327,6 +327,7 @@ bool RequestProcessing::sendHttpResponse() {
             }
         }
     }
+    LOG(INFO, "Response send success");
 
     return m_stop;
 }
